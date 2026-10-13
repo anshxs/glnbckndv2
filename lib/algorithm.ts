@@ -195,7 +195,7 @@ export async function fetchPersonalizedFeed({
     .eq('visibility', 'public');
 
   if (category) {
-    query = query.eq('category', category);
+    query = query.ilike('category', category.trim());
   }
 
   if (excludedIds.length > 0) {
@@ -207,13 +207,19 @@ export async function fetchPersonalizedFeed({
 
   const { data: candidates, error } = await query;
   if (error || !candidates || candidates.length === 0) {
-    // If exclusion caused empty results, fallback to fetching recent public videos without exclusion
-    const { data: fallbackVideos } = await supabaseAdmin
+    // If exclusion caused empty results, fallback to fetching recent public videos with category filter
+    let fallbackQuery = supabaseAdmin
       .from('sparks_videos')
       .select('*, metrics:sparks_video_metrics(*)')
       .eq('status', 'active')
       .eq('moderation_status', 'approved')
-      .eq('visibility', 'public')
+      .eq('visibility', 'public');
+
+    if (category) {
+      fallbackQuery = fallbackQuery.ilike('category', category.trim());
+    }
+
+    const { data: fallbackVideos } = await fallbackQuery
       .order('created_at', { ascending: false })
       .limit(actualLimit);
 
