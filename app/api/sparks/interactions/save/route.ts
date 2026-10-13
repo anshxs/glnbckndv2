@@ -24,10 +24,14 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON request body.');
   }
 
-  const { video_id } = body;
+  const { video_id, target_state, is_saved: reqIsSaved } = body;
   if (!video_id) {
     return jsonError('video_id is required.');
   }
+
+  const desiredState = typeof target_state === 'boolean'
+    ? target_state
+    : (typeof reqIsSaved === 'boolean' ? reqIsSaved : undefined);
 
   const { data: existingSave } = await supabaseAdmin
     .from('sparks_video_saves')
@@ -38,24 +42,48 @@ export async function POST(req: NextRequest) {
 
   let isSaved = false;
 
-  if (existingSave) {
-    // Unsave
-    await supabaseAdmin
-      .from('sparks_video_saves')
-      .delete()
-      .eq('user_id', authUser.id)
-      .eq('video_id', video_id);
-    isSaved = false;
+  if (desiredState !== undefined) {
+    if (desiredState) {
+      if (!existingSave) {
+        await supabaseAdmin
+          .from('sparks_video_saves')
+          .insert({
+            user_id: authUser.id,
+            video_id,
+            created_at: new Date().toISOString(),
+          });
+      }
+      isSaved = true;
+    } else {
+      if (existingSave) {
+        await supabaseAdmin
+          .from('sparks_video_saves')
+          .delete()
+          .eq('user_id', authUser.id)
+          .eq('video_id', video_id);
+      }
+      isSaved = false;
+    }
   } else {
-    // Save
-    await supabaseAdmin
-      .from('sparks_video_saves')
-      .insert({
-        user_id: authUser.id,
-        video_id,
-        created_at: new Date().toISOString(),
-      });
-    isSaved = true;
+    if (existingSave) {
+      // Unsave
+      await supabaseAdmin
+        .from('sparks_video_saves')
+        .delete()
+        .eq('user_id', authUser.id)
+        .eq('video_id', video_id);
+      isSaved = false;
+    } else {
+      // Save
+      await supabaseAdmin
+        .from('sparks_video_saves')
+        .insert({
+          user_id: authUser.id,
+          video_id,
+          created_at: new Date().toISOString(),
+        });
+      isSaved = true;
+    }
   }
 
   const { data: videoData } = await supabaseAdmin

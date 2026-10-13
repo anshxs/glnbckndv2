@@ -24,10 +24,14 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON request body.');
   }
 
-  const { video_id } = body;
+  const { video_id, target_state, is_liked: reqIsLiked } = body;
   if (!video_id) {
     return jsonError('video_id is required.');
   }
+
+  const desiredState = typeof target_state === 'boolean'
+    ? target_state
+    : (typeof reqIsLiked === 'boolean' ? reqIsLiked : undefined);
 
   // Check if already liked
   const { data: existingLike } = await supabaseAdmin
@@ -39,24 +43,48 @@ export async function POST(req: NextRequest) {
 
   let isLiked = false;
 
-  if (existingLike) {
-    // Unlike
-    await supabaseAdmin
-      .from('sparks_video_likes')
-      .delete()
-      .eq('user_id', authUser.id)
-      .eq('video_id', video_id);
-    isLiked = false;
+  if (desiredState !== undefined) {
+    if (desiredState) {
+      if (!existingLike) {
+        await supabaseAdmin
+          .from('sparks_video_likes')
+          .insert({
+            user_id: authUser.id,
+            video_id,
+            created_at: new Date().toISOString(),
+          });
+      }
+      isLiked = true;
+    } else {
+      if (existingLike) {
+        await supabaseAdmin
+          .from('sparks_video_likes')
+          .delete()
+          .eq('user_id', authUser.id)
+          .eq('video_id', video_id);
+      }
+      isLiked = false;
+    }
   } else {
-    // Like
-    await supabaseAdmin
-      .from('sparks_video_likes')
-      .insert({
-        user_id: authUser.id,
-        video_id,
-        created_at: new Date().toISOString(),
-      });
-    isLiked = true;
+    if (existingLike) {
+      // Unlike
+      await supabaseAdmin
+        .from('sparks_video_likes')
+        .delete()
+        .eq('user_id', authUser.id)
+        .eq('video_id', video_id);
+      isLiked = false;
+    } else {
+      // Like
+      await supabaseAdmin
+        .from('sparks_video_likes')
+        .insert({
+          user_id: authUser.id,
+          video_id,
+          created_at: new Date().toISOString(),
+        });
+      isLiked = true;
+    }
   }
 
   // Fetch updated like count
