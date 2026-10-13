@@ -134,11 +134,12 @@ export async function fetchPersonalizedFeed({
   // 1. Get IDs of videos user has already seen in the last 7 days (or reported)
   let excludedIds: string[] = [];
   let userInterestsMap: Map<string, number> = new Map();
+  let userGameIds: Set<string> = new Set();
 
   if (userId) {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [impressionsRes, viewsRes, reportsRes, interestsRes] = await Promise.all([
+    const [impressionsRes, viewsRes, reportsRes, interestsRes, userProfileRes] = await Promise.all([
       supabaseAdmin
         .from('sparks_video_impressions')
         .select('video_id')
@@ -151,6 +152,7 @@ export async function fetchPersonalizedFeed({
         .gte('started_at', sevenDaysAgo),
       supabaseAdmin.from('sparks_video_reports').select('video_id').eq('user_id', userId),
       supabaseAdmin.from('sparks_user_interests').select('interest, weight').eq('user_id', userId),
+      supabaseAdmin.from('sensitive_userdata').select('selected_game_ids').eq('id', userId).maybeSingle(),
     ]);
 
     const seenSet = new Set<string>();
@@ -162,6 +164,23 @@ export async function fetchPersonalizedFeed({
     interestsRes.data?.forEach((r) => {
       userInterestsMap.set(r.interest.toLowerCase(), r.weight);
     });
+
+    // Parse games the user plays from sensitive_userdata
+    if (userProfileRes.data?.selected_game_ids) {
+      const raw = userProfileRes.data.selected_game_ids;
+      if (Array.isArray(raw)) {
+        raw.forEach((g: any) => userGameIds.add(String(g).trim().toLowerCase()));
+      } else if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((g: any) => userGameIds.add(String(g).trim().toLowerCase()));
+          }
+        } catch {
+          raw.split(',').forEach((g: string) => userGameIds.add(g.trim().toLowerCase()));
+        }
+      }
+    }
   }
 
   // 2. Fetch candidates
@@ -202,7 +221,7 @@ export async function fetchPersonalizedFeed({
     return enrichVideoRecords(fallbackVideos, userId);
   }
 
-  // 3. Score candidates using composite algorithm
+  // 3. Score candidates using composite algorithm with Game Priority
   const now = Date.now();
   const scored = candidates.map((video) => {
     const metrics = Array.isArray(video.metrics) ? video.metrics[0] : video.metrics;
@@ -226,7 +245,7 @@ export async function fetchPersonalizedFeed({
     // Cold-start exploration boost for fresh uploads (<50 views)
     const explorationScore = (video.view_count || 0) < 50 ? 0.35 : 0.0;
 
-    // Personal affinity score
+    // Personal general interest affinity score
     let affinityScore = 0.1;
     if (userId && userInterestsMap.size > 0) {
       if (video.category && userInterestsMap.has(video.category.toLowerCase())) {
@@ -234,10 +253,35 @@ export async function fetchPersonalizedFeed({
       }
     }
 
+    // Game Match score: HIGH PRIORITY (0 to 1)
+    let gameMatchScore = 0.0;
+    if (userGameIds.size > 0) {
+      const videoGameIds: string[] = Array.isArray(video.game_ids)
+        ? video.game_ids
+        : typeof video.game_ids === 'string'
+          ? [video.game_ids]
+          : [];
+
+      const hasGameMatch = videoGameIds.some((gid: string) =>
+        userGameIds.has(String(gid).trim().toLowerCase())
+      );
+      if (hasGameMatch) {
+        gameMatchScore = 1.0;
+      }
+    }
+
     // Final Composite Score:
-    // 40% Personal Affinity + 30% Quality + 20% Freshness + 10% Exploration
+    // 35% Game Affinity (HIGHLY PRIORITIZED for games user plays)
+    // 25% Personal Category & Tag Affinity
+    // 20% Video Quality (Completion / Shares)
+    // 15% Freshness Decay
+    // 5% Cold-Start Exploration
     const finalScore =
-      affinityScore * 0.4 + qualityScore * 0.3 + freshnessScore * 0.2 + explorationScore * 0.1;
+      gameMatchScore * 0.35 +
+      affinityScore * 0.25 +
+      qualityScore * 0.20 +
+      freshnessScore * 0.15 +
+      explorationScore * 0.05;
 
     return {
       ...video,

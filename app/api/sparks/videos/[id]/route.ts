@@ -105,6 +105,13 @@ export async function PATCH(
     updates.category = body.category.trim().slice(0, 50);
   }
 
+  if (body.game_ids !== undefined || body.games !== undefined) {
+    const rawGames = body.game_ids ?? body.games;
+    if (Array.isArray(rawGames)) {
+      updates.game_ids = rawGames.map((g: any) => String(g).trim()).filter((g: string) => g.length > 0);
+    }
+  }
+
   if (['public', 'private', 'followers_only'].includes(body.visibility)) {
     updates.visibility = body.visibility;
   }

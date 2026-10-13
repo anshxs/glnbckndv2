@@ -12,6 +12,7 @@ export interface CreateSparkVideoInput {
   thumbnail_url?: string | null;
   caption?: string | null;
   category?: string | null;
+  game_ids?: string[];
   audio_id?: string | null;
   visibility?: SparksVisibility;
   tags?: string[]; // Optional explicit tags or extracted from caption #hashtags
@@ -21,6 +22,7 @@ export interface UpdateSparkVideoInput {
   thumbnail_url?: string | null;
   caption?: string | null;
   category?: string | null;
+  game_ids?: string[];
   visibility?: SparksVisibility;
 }
 
@@ -32,6 +34,7 @@ export interface SparkVideoRecord {
   caption: string | null;
   duration_ms: number;
   category: string | null;
+  game_ids?: string[];
   audio_id: string | null;
   visibility: SparksVisibility;
   status: SparksStatus;

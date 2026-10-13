@@ -53,6 +53,22 @@ export async function POST(req: NextRequest) {
       ? Math.round(body.duration_ms)
       : 0;
 
+  // Extract game_ids (array or comma-separated string)
+  let game_ids: string[] = [];
+  const rawGames = body.game_ids ?? body.games;
+  if (Array.isArray(rawGames)) {
+    game_ids = rawGames.map((g: any) => String(g).trim()).filter((g: string) => g.length > 0);
+  } else if (typeof rawGames === 'string' && rawGames.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(rawGames);
+      if (Array.isArray(parsed)) {
+        game_ids = parsed.map((g: any) => String(g).trim()).filter((g: string) => g.length > 0);
+      }
+    } catch {
+      game_ids = rawGames.split(',').map((g: string) => g.trim()).filter((g: string) => g.length > 0);
+    }
+  }
+
   // 2. Validation
   if (!video_url || !/^https?:\/\//i.test(video_url)) {
     return jsonError('video_url is required and must be a valid http/https URL.');
@@ -69,6 +85,7 @@ export async function POST(req: NextRequest) {
     thumbnail_url,
     caption,
     category,
+    game_ids,
     audio_id,
     visibility,
     duration_ms,
